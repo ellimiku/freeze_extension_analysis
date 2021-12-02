@@ -349,7 +349,7 @@ for series in (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs
     # python string formatting (ab)use: a +/- a_strerr, b +/- b_sterr_b
     print("Sqrt parameters {0}: a = {1:.2f} \u00B1 {3:.2f} , b = {2:.2f} \u00B1 {4:.2f}"
           .format(labels[j], *parameters_sqrt[j], *np.sqrt(var_sqrt[j])))
-    print("Exp parameters {0}: a = {1:.2f} \u00B1 {3:.2f} , b = {2:.2f} \u00B1 {4:.2f}"
+    print("Exp parameters {0}: a = {1:.2f} \u00B1 {3:.2f} , b = {2:.3f} \u00B1 {4:.3f}"
           .format(labels[j], *parameters_exp[j], *np.sqrt(var_exp[j])))
     print("Linear parameters {0}: a = {1:.2f} \u00B1 {3:.2f} , b = {2:.2f} \u00B1 {4:.2f}"
           .format(labels[j], *parameters_lin[j], *np.sqrt(var_lin[j])))
@@ -382,7 +382,7 @@ for i in range(0, 2):
 # python string formatting (ab)use: a +/- a_strerr, b +/- b_sterr_b
 print("Best overall sqrt parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.2f} \u00B1 {3:.2f}"
       .format(*best_parameters_sqrt, *np.sqrt(var_best_parameters_sqrt)))
-print("Best overall exp parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.2f} \u00B1 {3:.2f}"
+print("Best overall exp parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.3f} \u00B1 {3:.3f}"
       .format(*best_parameters_exp, *np.sqrt(var_best_parameters_exp)))
 print("Best overall linear parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.2f} \u00B1 {3:.2f}"
       .format(*best_parameters_lin, *np.sqrt(var_best_parameters_lin)))
@@ -514,7 +514,7 @@ for figure in (fig1, fig2):
     plt.figure(figure.number)
     plt.legend(fontsize=8)
     plt.title("Freeze time vs t_decay")
-    plt.savefig("t_frozen_vs_t_decay_{0}.png".format(i))
+    plt.savefig("t_frozen_vs_t_decay_{0}.png".format(i), dpi=300)
     i += 1
 
 
@@ -543,43 +543,9 @@ for k in range(0, number):
     ax.set_xlim(0, t_decay_data.max() + 1.5)
     plt.legend(loc="upper right")
     plt.title(labels[k])
-    plt.savefig("{0}.png".format(labels[k]))
+    plt.savefig("{0}.png".format(labels[k]), dpi=300)
     plt.show()
     plt.close()
-
-# for k in range(0, number):
-#     fig, ax = plt.subplots(1, 1)
-#     t_decay_data = data_series_plot[k]["t_frozen_cumulative"] + parameters_sqrt[k][0] * data_series_plot[k][
-#         "t_unfrozen_cumulative"]
-#     y_data = data_series_plot[k]['t_frozen']
-#     x_for_func = np.transpose(data_series_plot[k].loc[:, "t_frozen_cumulative":"t_unfrozen_cumulative"].to_numpy())
-#     ed = data_series_plot[k].loc[:, "ed_estimate"]
-#     y_sqrt_ind = sqrt_formula_for_optimization(x_for_func, *parameters_sqrt[k], d_frozen=ed)
-#     y_sqrt_best = sqrt_formula_for_optimization(x_for_func, *best_parameters_sqrt, d_frozen=ed)
-#
-#     ax.plot(t_decay_data, data_series_plot[k]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
-#             label="data", color="#707070")
-#     ax.plot(t_decay_data, y_sqrt_ind, linestyle="None", marker=".", markersize=1.2, label="individual fit sqrt",
-#             color="#FAD816")
-#
-#     ax.plot(t_decay_data, y_sqrt_best, linestyle="None", marker=".", markersize=1.2, label="best fit sqrt",
-#             color="#FA9F16")
-#
-#     ax.plot(t_decay_plot[k], y_ranges_fit_sqrt[k], linewidth=0.5, color="#FAD816")
-#     ax.plot(t_decay_plot[k], y_ranges_best_fit_sqrt[k], linewidth=0.5, color="#FA9F16")
-#     # ax.plot(t_decay_plot[k], y_ranges_best_fit_sqrt[k], linewidth=0.5, label="best fit sqrt", color="#FA9F16")
-#     # ax.plot(t_decay_plot[k], y_ranges_fit_exp[k], linewidth=0.5, label="individual fit exp", color="#9EA8F7")
-#     # ax.plot(t_decay_plot[k], y_ranges_best_fit_exp[k], linewidth=0.5, label="best fit exp", color="#5968DA")
-#     # ax.plot(t_decay_plot[k], y_ranges_fit_lin[k], linewidth=0.5, label="individual fit lin", color="#8ED89C")
-#     # ax.plot(t_decay_plot[k], y_ranges_best_fit_lin[k], linewidth=0.5, label="best fit lin", color="#34A656")
-#     # set sensible y limits
-#     ax.set_ylim(0, data_series_plot[k].max().iloc[2] + 1)
-#     ax.set_xlim(0, t_decay_data.max() + 1.5)
-#     plt.legend(loc="upper right")
-#     plt.title(labels[k])
-#     plt.savefig("{0}_1.png".format(labels[k]))
-#     #plt.show()
-#     plt.close()
 
 
 ### Save data ###
