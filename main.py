@@ -498,7 +498,7 @@ for ax in (ax1, ax2):
     j = 0
     for v in range(0, 2):
         ax.plot(freeze_data_dfs[v]['t_decay'], freeze_data_dfs[v]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
-                label="v{0} data - {1}".format(v, aura_arr[j]), color=colors_arr[j + 2])
+                label="Kourinn v{0} data - {1}".format(v, aura_arr[j]), color=colors_arr[j + 2])
         j += 1
     ax.plot(freeze_data_isu['t_decay'], freeze_data_isu['t_frozen'], linestyle="none",
             marker=".", markersize=1.2,
@@ -524,7 +524,7 @@ plt.close(fig2)
 
 data_series_plot = (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu,
                     freeze_data_aloy)
-labels = ("ellimiku", "phaZ_swirl", "v1", "v3", "isu", "phaZ_aloy")
+labels = ("ellimiku", "phaZ_swirl", "Kourinn_v1", "Kourinn_v3", "isu", "phaZ_aloy")
 
 
 for k in range(0, number):
@@ -540,7 +540,9 @@ for k in range(0, number):
     ax.plot(t_decay_plot[k], y_ranges_best_fit_lin[k], linewidth=0.5, label="best fit lin", color="#34A656")
     # set sensible y limits
     ax.set_ylim(0, data_series_plot[k].max().iloc[2] + 1)
-    ax.set_xlim(0, t_decay_data.max() + 1.5)
+    ax.set_xlim(0, t_decay_data.max() + 0.5)
+    ax.set_ylabel("time frozen")
+    ax.set_xlabel("t_decay")
     plt.legend(loc="upper right")
     plt.title(labels[k])
     plt.savefig("{0}.png".format(labels[k]), dpi=300)
