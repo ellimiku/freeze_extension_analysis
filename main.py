@@ -210,7 +210,7 @@ def fitting(data_series, ed_mode_func="exact", ed_estimate_func=40):
     # cumulative frozen time and cumulative unfrozen time are considered as separate variables
     if ed_mode_func == "exact":
         # exact means determined from data
-        element_durability = 2 * data_series.loc[:, "ed_estimate"]
+        element_durability = data_series.loc[:, "ed_estimate"]
     else:
         # estimate means given through knowledge about game (e.g. ed of rain)
         element_durability = ed_estimate_func
@@ -229,7 +229,8 @@ def fitting(data_series, ed_mode_func="exact", ed_estimate_func=40):
     data_y = data_series.loc[:, 't_frozen'].to_numpy()
     data_x = np.transpose(data_series.loc[:, 't_frozen_cumulative':'t_unfrozen_cumulative'].to_numpy())
     # fit to sqrt curve
-    p_sqrt_temp = curve_fit(temp_func_sqrt, data_x, data_y, p0=(-2, 4), bounds=([-5, 0.5], [-0.001, 20]))
+    p_sqrt_temp = curve_fit(temp_func_sqrt, data_x, data_y, p0=(-2, 4))
+    # bounds=([-5, 2.0], [-0.001, 15])
     parameters_sqrt_temp = p_sqrt_temp[0]
     var_sqrt_temp = np.diag(p_sqrt_temp[1])
     # fit to exp curve
@@ -258,7 +259,7 @@ for j in range(0, freeze_data_phaZ_raw.shape[0]):
     freeze_data_phaZ_raw.loc[j, "unfreeze time [s]"] = freeze_data_phaZ_raw.loc[j, "unfreeze time [s]"] / 60
 
 # do calculations
-filter_cutoff = 4.5
+filter_cutoff = 7
 
 freeze_data_ellimiku = freeze_time_calcs_from_raw(freeze_data_ellimiku_raw, array_mode="sequential", ed_mode="estimate",
                                                   element_durability=50)
@@ -274,18 +275,20 @@ freeze_data_v1_raw = pd.read_csv("Genshin_Freeze_Extension_v1.csv", header=1, sk
 freeze_data_v3_raw = pd.read_csv("Genshin_Freeze_Extension_v3.csv", header=1, skiprows=1, usecols=[0, 1])
 
 freeze_data_dfs = []
-ed_estimate = np.array([50, 50, 40, 80, 40, 50])
-ed_modes = ["estimate", "estimate", "exact", "exact", "estimate"]
+ed_estimate = np.array([50, 112.5, 40, 40, 50, 50, 50])
+ed_modes = ["estimate", "estimate", "exact", "exact", "estimate", "estimate"]
 
 j = 1
-number = 5
+number = 6
 for raw_data in (freeze_data_v1_raw, freeze_data_v3_raw):
     for k in range(0, raw_data.shape[0]):
         raw_data.iloc[k, 0] = timestamp_to_float(raw_data.iloc[k, 0])
     result = freeze_time_calcs_from_raw(raw_data, array_mode="alternating", ed_mode=ed_modes[j + 1])
-    freeze_data_dfs.append(result)
+    result_filtered = result[result['t_unfrozen_cumulative'] < filter_cutoff]
+    freeze_data_dfs.append(result_filtered)
     j += 1
 
+# isu data need some processing before I can do calcs with them - a bit messy here
 freeze_data_isu_raw = pd.read_csv("Freeze_extensions_isu.csv", header=1, skiprows=10, usecols=[2, 3, 4, 5])
 freeze_data_isu_raw_numpy = freeze_data_isu_raw.iloc[0:10, :].to_numpy()  # for reshaping in the next line
 freeze_data_isu_raw_numpy = np.reshape(freeze_data_isu_raw_numpy, (20, 2))  # get data in the "sequential" format
@@ -307,6 +310,16 @@ for i in range(0, 10):
                                               element_durability=50)
     freeze_data_isu.iloc[index:index + 2, :] = partial_data
 
+# aloy data recorded by phaZ
+freeze_data_aloy_raw = pd.read_csv("freeze_extension_aloy.csv", skiprows=1, usecols=[3, 4], nrows=76)
+freeze_data_aloy_raw.columns = ("freeze start time [s]", "unfreeze time [s]")
+for j in range(0, freeze_data_aloy_raw.shape[0]):
+    freeze_data_aloy_raw.loc[j, "freeze start time [s]"] = freeze_data_aloy_raw.loc[j, "freeze start time [s]"] / 60
+    freeze_data_aloy_raw.loc[j, "unfreeze time [s]"] = freeze_data_aloy_raw.loc[j, "unfreeze time [s]"] / 60
+
+freeze_data_aloy = freeze_time_calcs_from_raw(freeze_data_aloy_raw, array_mode="sequential", ed_mode="estimate",
+                                               element_durability=50)
+freeze_data_aloy_filtered = freeze_data_aloy[freeze_data_aloy['t_unfrozen_cumulative'] < filter_cutoff]
 
 ### fitting ###
 
@@ -318,8 +331,8 @@ parameters_lin = []
 var_lin = []
 
 j = 0
-labels = ("ellimiku", "phaZ", "v1", "v3", "isu")
-for series in (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu):
+labels = ("ellimiku", "phaZ - swirl", "v1", "v3", "isu", "phaZ - aloy")
+for series in (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu, freeze_data_aloy):
     fit_results = fitting(series, ed_mode_func=ed_modes[j], ed_estimate_func=ed_estimate[j])
     # [i][k]   i = 0 corresponds to sqrt
     #          i = 1 corresponds to exp
@@ -382,8 +395,10 @@ x_for_calcs = []
 array_params_t_decay = []
 array_vars_decay = []
 j = 0
-for data_series in (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu):
-    t_frozen_max = data_series.max().loc["t_frozen_cumulative"]
+for data_series in (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu,
+                    freeze_data_aloy):
+
+    t_frozen_max = 2 * data_series.max().loc["t_frozen_cumulative"]  # twice the max so we have large enough t_decay
     # find way to combine variables 't_frozen_cumulative' and 't_unfrozen cumulative' into one ('t_decay')
     # linregress of actual data
     params_lin_t_decay = linregress(data_series.loc[:, 't_frozen_cumulative'],
@@ -397,8 +412,8 @@ for data_series in (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_dat
     t_unfrozen.append(np.linspace(t_unfrozen_min, t_unfrozen_max, 100))
     # t_decay = t_frozen_cumulative + a * t_unfrozen_cumulative
     factor_a = parameters_sqrt[j][0]
-    t_decay_plot.append(np.linspace(0, t_frozen_max - factor_a * t_unfrozen_max, 100))
-    x_for_calcs.append(np.array([t_frozen, t_unfrozen]))
+    t_decay_plot.append(np.linspace(0, t_frozen_max + factor_a * t_unfrozen_max, 100))
+    x_for_calcs.append(np.array([t_frozen[-1], t_unfrozen[-1]]))
     j += 1
 
 y_ranges_fit_sqrt = []
@@ -409,28 +424,30 @@ y_ranges_fit_lin = []
 y_ranges_best_fit_lin = []
 
 for i in range(0, number):
+    # generate points to plot the functions
     y_ranges_fit_sqrt.append(sqrt_formula_for_optimization(x_for_calcs[i], *parameters_sqrt[i],
-                                                           d_frozen=ed_estimate[i])[0])
+                                                           d_frozen=ed_estimate[i]))
     y_ranges_best_fit_sqrt.append(sqrt_formula_for_optimization(x_for_calcs[i], *best_parameters_sqrt,
-                                                                d_frozen=ed_estimate[i])[0])
+                                                                d_frozen=ed_estimate[i]))
     y_ranges_fit_exp.append(exp_formula_for_optimization(x_for_calcs[i], *parameters_exp[i],
-                                                         d_frozen=ed_estimate[i])[0])
+                                                         d_frozen=ed_estimate[i]))
     y_ranges_best_fit_exp.append(exp_formula_for_optimization(x_for_calcs[i], *best_parameters_exp,
-                                                              d_frozen=ed_estimate[i])[0])
+                                                              d_frozen=ed_estimate[i]))
     y_ranges_fit_lin.append(lin_function_for_optimization(x_for_calcs[i], *parameters_lin[i],
-                                                          d_frozen=ed_estimate[i])[0])
+                                                          d_frozen=ed_estimate[i]))
     y_ranges_best_fit_lin.append(lin_function_for_optimization(x_for_calcs[i], *best_parameters_lin,
-                                                               d_frozen=ed_estimate[i])[0])
+                                                               d_frozen=ed_estimate[i]))
 
 # weighted avg for t_unfrozen_cumulative as a fcn of t_frozen_cumulative (ONLY for plotting)
-weights_t_unfrozen_cum = np.array([1 / array_vars_decay[j] for j in range(0, number)])
-slope_for_plot = np.average(np.array(array_params_t_decay[i]), axis=0, weights=weights_t_unfrozen_cum[i])
-
-# generate lines corresponding to original formula
-t_frozen_best = np.linspace(0, 100, 200)
-t_unfrozen_best = np.linspace(0, slope_for_plot * 100, 200)
+weights_t_unfrozen_slope = np.array([1 / array_vars_decay[j][0] for j in range(0, number)])
+# weights_t_unfrozen_intercept = np.array([1 / array_vars_decay[j] for j in range(0, number)])
+slopes = np.array([array_params_t_decay[i][1] for i in range(0, number)])
+slope_for_plot = np.average(slopes, axis=0, weights=weights_t_unfrozen_slope)
+# generate lines corresponding to formula
+t_frozen_best = np.linspace(0, 50, 100)
+t_unfrozen_best = np.linspace(0, slope_for_plot * 50, 100)
 a_plots = best_parameters_sqrt[0]
-x_range = t_unfrozen_best - a_plots * t_unfrozen_best
+x_range = t_frozen_best + a_plots * t_unfrozen_best
 # y_range = freeze_formula(x_range)  # y coordinate aka freeze time
 # y_range_aura = freeze_formula(x_range, d_frozen=40)  # with aura tax taken into account
 # y_range_2b_aura = freeze_formula(x_range, d_frozen=80)  # and with 2B and aura tax
@@ -439,8 +456,10 @@ y_range_sqrt_1A = sqrt_formula_for_optimization(np.array([t_frozen_best, t_unfro
 
 y_range_sqrt_1A_aura = sqrt_formula_for_optimization(np.array([t_frozen_best, t_unfrozen_best]), *best_parameters_sqrt,
                                                      d_frozen=40)
-# y_range_sqrt_2B_aura = sqrt_formula_for_optimization(np.array([t_frozen_best, t_unfrozen_best]), *best_parameters_sqrt,
-#                                                      d_frozen=80)
+y_range_sqrt_2B_aura = sqrt_formula_for_optimization(np.array([t_frozen_best, t_unfrozen_best]), *best_parameters_sqrt,
+                                                     d_frozen=80)
+y_range_sqrt_swirl_aura = sqrt_formula_for_optimization(np.array([t_frozen_best, t_unfrozen_best]),
+                                                        *best_parameters_sqrt, d_frozen=112.4)
 y_range_exp_1A = exp_formula_for_optimization(np.array([t_frozen_best, t_unfrozen_best]), *best_parameters_exp,
                                               d_frozen=50)
 y_range_exp_1A_aura = exp_formula_for_optimization(np.array([t_frozen_best, t_unfrozen_best]), *best_parameters_exp,
@@ -453,53 +472,65 @@ y_range_lin_1A_aura = lin_function_for_optimization(np.array([t_frozen_best, t_u
 
 ### Plots ###
 aura_arr = ["1A", "1A"]
-colors_arr = ["#A344A0", "#1AABC8", "#707070", "#000000", "#D1A2D0"]  # "#883EFF"
-fig, ax = plt.subplots(1, 1)
-ax.set_ylim((1, 5))
-ax.set_xlim((-0.1, 10.5))
-# ax.plot(x_range, y_range, label="Formula for 1A hydro", color="#707070", linewidth=1)
-# ax.plot(x_range, y_range_aura, label="Formula for 1A hydro with aura tax", color="#000000", linewidth=1)
-ax.plot(x_range, y_range_sqrt_1A_aura, label="Sqrt formula fit - 1A with aura tax", color="#FA9F16", linewidth=0.5)
-ax.plot(x_range, y_range_sqrt_1A, label="Sqrt formula fit - 1A w/o aura tax", color="#E4421E", linewidth=0.5)
-#ax.plot(x_range, y_range_exp_1A_aura, label="Exp formula fit - 1A with aura tax", color="#5968DA", linewidth=0.5)
-ax.plot(x_range, y_range_exp_1A, label="Exp formula fit - 1A w/o aura tax", color="#202C8A", linewidth=0.5)
-#ax.plot(x_range, y_range_lin_1A_aura, label="Linear formula fit - 1A with aura tax", color="#34A656", linewidth=0.5)
-ax.plot(x_range, y_range_lin_1A, label="Linear formula fit - 1A w/o aura tax", color="#27732D", linewidth=0.5)
+colors_arr = ["#4424D3", "#2CC259", "#707070", "#000000", "#2A96AB", "#C55EC3"]
+fig1, ax1 = plt.subplots(1, 1)
+fig2, ax2 = plt.subplots(1, 1)
+
+# plot functions
+# ax1
+ax1.plot(x_range, y_range_sqrt_1A, label="Sqrt formula fit - 1A w/o aura tax", color="#EF711A", linewidth=0.5)
+ax1.plot(x_range, y_range_exp_1A, label="Exp formula fit - 1A w/o aura tax", color="#202C8A", linewidth=0.5)
+ax1.plot(x_range, y_range_lin_1A, label="Linear formula fit - 1A w/o aura tax", color="#27732D", linewidth=0.5)
+# ax2
+ax2.plot(x_range, y_range_sqrt_1A_aura, label="Sqrt formula fit - 1A with aura tax", color="#FA9F16", linewidth=0.5)
+ax2.plot(x_range, y_range_sqrt_1A, label="Sqrt formula fit - 1A w/o aura tax", color="#EF711A", linewidth=0.5)
+ax2.plot(x_range, y_range_sqrt_swirl_aura, label="Sqrt formula fit - swirl tests", color="#E4421E", linewidth=0.5)
+
+# plot data
+for ax in (ax1, ax2):
+    ax.set_ylim((0, 5))
+    ax.set_xlim((-0.1, 10.5))
+    ax.plot(freeze_data_ellimiku_filtered['t_decay'], freeze_data_ellimiku_filtered['t_frozen'], linestyle="none",
+            marker=".", markersize=1.2,
+            label="ellimiku data - enemy in water", color=colors_arr[0])
+    ax.plot(freeze_data_phaZ['t_decay'], freeze_data_phaZ['t_frozen'], linestyle="none", marker=".", markersize=1.2,
+            label="phaZ data - swirl tests", color=colors_arr[1])
+    j = 0
+    for v in range(0, 2):
+        ax.plot(freeze_data_dfs[v]['t_decay'], freeze_data_dfs[v]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
+                label="v{0} data - {1}".format(v, aura_arr[j]), color=colors_arr[j + 2])
+        j += 1
+    ax.plot(freeze_data_isu['t_decay'], freeze_data_isu['t_frozen'], linestyle="none",
+            marker=".", markersize=1.2,
+            label="isu data - enemy in water", color=colors_arr[4])
+
+    ax.plot(freeze_data_aloy['t_decay'], freeze_data_aloy['t_frozen'], linestyle="none", marker=".", markersize=1.2,
+            label="phaZ data - enemy in water", color=colors_arr[5])
+
+    ax.set_xlabel("t_decay")
+    ax.set_ylabel("time frozen")
+i = 0
+for figure in (fig1, fig2):
+    plt.figure(figure.number)
+    plt.legend(fontsize=8)
+    plt.title("Freeze time vs t_decay")
+    plt.savefig("t_frozen_vs_t_decay_{0}.png".format(i))
+    i += 1
 
 
-ax.plot(freeze_data_ellimiku_filtered['t_decay'], freeze_data_ellimiku_filtered['t_frozen'], linestyle="none",
-        marker=".", markersize=1.2,
-        label="ellimiku data - enemy in water", color=colors_arr[0])
-ax.plot(freeze_data_phaZ['t_decay'], freeze_data_phaZ['t_frozen'], linestyle="none", marker=".", markersize=1.2,
-        label="phaZ data - swirl tests", color=colors_arr[1])
-j = 0
-for v in range(0, 2):
-    ax.plot(freeze_data_dfs[v]['t_decay'], freeze_data_dfs[v]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
-            label="v{0} data - {1}".format(v, aura_arr[j]), color=colors_arr[j + 2])
-    j += 1
-ax.plot(freeze_data_isu['t_decay'], freeze_data_isu['t_frozen'], linestyle="none",
-        marker=".", markersize=1.2,
-        label="isu data - enemy in water", color=colors_arr[4])
-
-for i in range(0, 4):
-    pass
-#     ax.plot(t_decay_plot, y_ranges_fit_sqrt[i], linewidth=1, label="fit sqrt {0}" .format(i))
-#     ax.plot(t_decay_plot, y_ranges_fit_exp[i], linewidth=1, label="fit exp {0}".format(i))
-ax.set_xlabel("t_decay")
-ax.set_ylabel("time frozen")
-plt.legend(fontsize=8)
-plt.title("Freeze time vs t_decay")
-plt.savefig("t_frozen_vs_t_decay.png")
 plt.show()
-plt.close(fig)
+plt.close(fig1)
+plt.close(fig2)
 
-data_series = (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu)
-labels = ("ellimiku", "phaZ", "v1", "v3", "isu")
+data_series_plot = (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu,
+                    freeze_data_aloy)
+labels = ("ellimiku", "phaZ_swirl", "v1", "v3", "isu", "phaZ_aloy")
 
 
 for k in range(0, number):
     fig, ax = plt.subplots(1, 1)
-    ax.plot(data_series[k]['t_decay'], data_series[k]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
+    t_decay_data = data_series_plot[k]["t_frozen_cumulative"] + parameters_sqrt[k][0] * data_series_plot[k]["t_unfrozen_cumulative"]
+    ax.plot(t_decay_data, data_series_plot[k]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
             label="data", color="#707070")
     ax.plot(t_decay_plot[k], y_ranges_fit_sqrt[k], linewidth=0.5, label="individual fit sqrt", color="#FAD816")
     ax.plot(t_decay_plot[k], y_ranges_best_fit_sqrt[k], linewidth=0.5, label="best fit sqrt", color="#FA9F16")
@@ -508,12 +539,47 @@ for k in range(0, number):
     ax.plot(t_decay_plot[k], y_ranges_fit_lin[k], linewidth=0.5, label="individual fit lin", color="#8ED89C")
     ax.plot(t_decay_plot[k], y_ranges_best_fit_lin[k], linewidth=0.5, label="best fit lin", color="#34A656")
     # set sensible y limits
-    ax.set_ylim(data_series[k].min().iloc[2] - 0.5, data_series[k].max().iloc[2] + 1)
+    ax.set_ylim(0, data_series_plot[k].max().iloc[2] + 1)
+    ax.set_xlim(0, t_decay_data.max() + 1.5)
     plt.legend(loc="upper right")
     plt.title(labels[k])
     plt.savefig("{0}.png".format(labels[k]))
     plt.show()
     plt.close()
+
+# for k in range(0, number):
+#     fig, ax = plt.subplots(1, 1)
+#     t_decay_data = data_series_plot[k]["t_frozen_cumulative"] + parameters_sqrt[k][0] * data_series_plot[k][
+#         "t_unfrozen_cumulative"]
+#     y_data = data_series_plot[k]['t_frozen']
+#     x_for_func = np.transpose(data_series_plot[k].loc[:, "t_frozen_cumulative":"t_unfrozen_cumulative"].to_numpy())
+#     ed = data_series_plot[k].loc[:, "ed_estimate"]
+#     y_sqrt_ind = sqrt_formula_for_optimization(x_for_func, *parameters_sqrt[k], d_frozen=ed)
+#     y_sqrt_best = sqrt_formula_for_optimization(x_for_func, *best_parameters_sqrt, d_frozen=ed)
+#
+#     ax.plot(t_decay_data, data_series_plot[k]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
+#             label="data", color="#707070")
+#     ax.plot(t_decay_data, y_sqrt_ind, linestyle="None", marker=".", markersize=1.2, label="individual fit sqrt",
+#             color="#FAD816")
+#
+#     ax.plot(t_decay_data, y_sqrt_best, linestyle="None", marker=".", markersize=1.2, label="best fit sqrt",
+#             color="#FA9F16")
+#
+#     ax.plot(t_decay_plot[k], y_ranges_fit_sqrt[k], linewidth=0.5, color="#FAD816")
+#     ax.plot(t_decay_plot[k], y_ranges_best_fit_sqrt[k], linewidth=0.5, color="#FA9F16")
+#     # ax.plot(t_decay_plot[k], y_ranges_best_fit_sqrt[k], linewidth=0.5, label="best fit sqrt", color="#FA9F16")
+#     # ax.plot(t_decay_plot[k], y_ranges_fit_exp[k], linewidth=0.5, label="individual fit exp", color="#9EA8F7")
+#     # ax.plot(t_decay_plot[k], y_ranges_best_fit_exp[k], linewidth=0.5, label="best fit exp", color="#5968DA")
+#     # ax.plot(t_decay_plot[k], y_ranges_fit_lin[k], linewidth=0.5, label="individual fit lin", color="#8ED89C")
+#     # ax.plot(t_decay_plot[k], y_ranges_best_fit_lin[k], linewidth=0.5, label="best fit lin", color="#34A656")
+#     # set sensible y limits
+#     ax.set_ylim(0, data_series_plot[k].max().iloc[2] + 1)
+#     ax.set_xlim(0, t_decay_data.max() + 1.5)
+#     plt.legend(loc="upper right")
+#     plt.title(labels[k])
+#     plt.savefig("{0}_1.png".format(labels[k]))
+#     #plt.show()
+#     plt.close()
 
 
 ### Save data ###
