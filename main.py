@@ -7,71 +7,85 @@ import re
 
 
 def freeze_formula(t_decay, b=4, d_frozen=50):
+    # formula from previous ticket (I generally call it sqrt formula)
     in_sqrt = (25 * b ** 2 + 20 * d_frozen + 25 * t_decay ** 2 + 50 * b * t_decay)
     return np.sqrt(in_sqrt) / 5 - t_decay - b
 
 
 def sqrt_formula_for_optimization(x, a, b, d_frozen=50):
+    # sqrt formula, but with adjustable parameters
     t_decay = x[0] + a * x[1]
     in_sqrt = (20 * d_frozen + 25 * (t_decay + b) ** 2)
     return np.sqrt(in_sqrt) / 5 - t_decay - b
 
 
 def exp_formula_for_optimization(x, a, c, d_frozen=50):
+    # exponential decay formula with adjustable parameters
     t_decay = x[0] + a * x[1]
     decay_factor = np.exp(-c * t_decay)
     return decay_factor * freeze_formula(0, d_frozen=d_frozen)
 
 
 def lin_function_for_optimization(x, slope0, slope1, d_frozen=50):
-    t_decay = x[0] + slope1 / slope0 * x[1]
+    # linear decay formula
     return freeze_formula(0, d_frozen=d_frozen) + slope0 * x[0] + slope1 * x[1]
 
 
 def timestamp_to_float(timestamp):
-    # regex magic
-    second_string = re.search('[0-9]+\.[0-9]+', timestamp)
-    minute_string = re.match('[0-9]+', timestamp)
-    if second_string and minute_string:
-        return 60 * float(minute_string[0]) + float(second_string[0])
+    # regex magic, dw about it too much
+    # timestamp layout xx:yy.zz
+    # xx - minutes, yy - seconds, zz - fractional seconds
+    second_string = re.search('[0-9]+\.[0-9]+', timestamp)  # finds out yy.zz
+    minute_string = re.match('[0-9]+', timestamp)  # finds xx
+    if second_string and minute_string:  # if both have matches
+        return 60 * float(minute_string[0]) + float(second_string[0])  # convert to seconds
     else:
         print("no match")
         return 0
 
 
 def freeze_time_calcs_from_raw(raw_data, array_mode="sequential", element_durability=40, ed_mode="exact"):
+    # calculates time frozen (this iteration), time unfrozen (this iteration), time frozen cumulative(since last reset),
+    # time unfrozen cumulative(since last reset), t_decay (with b = -2) (since last reset), element_durability of frozen
+    # at the beginning of the reaction
+    # raw_data: input of frozen start time, unfreeze start time, (aura application start time)
+    # array_mode = "sequential" or "alternating"
+    # element_durability - of freeze
+    # ed_mode = "exact" or "estimate". Exact - will be determined by data. Estimate - is known beforehand or guessed
 
-    if array_mode == "sequential":
+    if array_mode == "sequential":  # sequential data format: t_frozen, t_unfrozen in different columns, same rows
         df_length = raw_data.shape[0]
         freeze = raw_data['freeze start time [s]']
         unfreeze = raw_data['unfreeze time [s]']
-        # calculate frozen and unfrozen time
-        time_frozen = np.array(raw_data.iloc[:, 1] - raw_data.iloc[:, 0])
-        time_unfrozen = np.array([raw_data.iloc[i + 1, 0] - raw_data.iloc[i, 1] for i in range(0, df_length - 1)])
+        # calculate frozen and unfrozen duration
+        duration_frozen = np.array(raw_data.iloc[:, 1] - raw_data.iloc[:, 0])
+        duration_unfrozen = np.array([raw_data.iloc[i + 1, 0] - raw_data.iloc[i, 1] for i in range(0, df_length - 1)])
         # replace NaNs due to freezing before unfreezing
         for i in range(0, df_length - 1):
-            if pd.isna(time_frozen[i]):
-                time_frozen[i] = raw_data.iloc[i + 1, 0] - raw_data.iloc[i, 0]
-                if freeze[i] < 0:
+            if pd.isna(duration_frozen[i]):
+                duration_frozen[i] = raw_data.iloc[i + 1, 0] - raw_data.iloc[i, 0]
+                if freeze[i] < 0:  # negative duration is not possible
                     freeze[i] = float("NaN")
-            if pd.isna(time_unfrozen[i]) or time_unfrozen[i] < 0:
-                time_unfrozen[i] = 0
+            if pd.isna(duration_unfrozen[i]) or duration_unfrozen[i] < 0:
+                duration_unfrozen[i] = 0  # only matters for calcs
             if pd.isna(unfreeze.iloc[i]):
-                time_unfrozen[i] = 0
+                duration_unfrozen[i] = 0
                 unfreeze[i] = 0
 
-
-        # append 0 at the last position
-        time_unfrozen = np.append(time_unfrozen, 0)
-
-        ed_array = np.zeros_like(time_frozen)
+        # append 0 at the last position (since we have one entry too few)
+        duration_unfrozen = np.append(duration_unfrozen, 0)
+        # initiate elemental durablility array
+        ed_array = np.zeros_like(duration_frozen)
 
         if ed_mode == "exact":
             print("cannot determine exact element durability from data")
-        for l in range(0, df_length):
+        for l in range(0, df_length):  # ed_mode = estimate - value given in function call
             ed_array[l] = element_durability
 
-    if array_mode == "alternating":
+    if array_mode == "alternating":  # alternating data format: (aura application time), t_frozen, t_unfrozen in
+        #                              same column, different rows. Definitely the most "spaghetti" part (but it works).
+        #                              HERE BE DRAGONS
+
         # match element_durability:
         if ed_mode == "exact":
             if element_durability == 40:
@@ -79,7 +93,7 @@ def freeze_time_calcs_from_raw(raw_data, array_mode="sequential", element_durabi
             elif element_durability == 80:
                 decay_time = 12
             elif element_durability == 112.5:
-                decay_time = 7.6  # guess for now
+                decay_time = 7.6  # swirl
             else:
                 print("warning: invalid element durability")
                 decay_time = 1
@@ -88,84 +102,87 @@ def freeze_time_calcs_from_raw(raw_data, array_mode="sequential", element_durabi
 
         df_length = raw_data[raw_data['status'] == "frozen"].shape[0]  # length of new data frame
         # initialize arrays
-        ed_array = np.zeros(df_length)
-        ed_time = np.zeros(df_length)
-        freeze = np.zeros(df_length)
-        unfreeze = np.zeros(df_length)
-        time_frozen = np.zeros(df_length)
-        time_unfrozen = np.zeros(df_length)
-        # k - counter for refreezes before unfreezing, l - counter for new sequential dataframe
+        ed_array = np.zeros(df_length)  # elemental durablility
+        ed_time = np.zeros(df_length)  # time at which aura is applied
+        freeze = np.zeros(df_length)  # freeze start time
+        unfreeze = np.zeros(df_length)  # unfreeze start time
+        duration_frozen = np.zeros(df_length)  # freeze duration
+        duration_unfrozen = np.zeros(df_length)  # unfreeze duration
+
+        # k - counter for refreezes before unfreezing, l - counter for new (sequential) dataframe
         k = 0
         l = 0
         for i in range(0, raw_data.shape[0]):
-            if raw_data.status.isin(("wet", "cryo"))[i]:
+            if raw_data.status.isin(("wet", "cryo"))[i]:  # aura application
                 j = 1
-                while j < raw_data.shape[0] - i:
+                while j < raw_data.shape[0] - i:  # j lower than remaining rows
+                    # frozen aura is determined from element aura at time of the reaction
                     if raw_data.loc[i + j, 'status'] == "frozen":
-                        if ed_mode == "exact":
+                        if ed_mode == "exact":  # determine ed from data
                             ed_time[l] = raw_data.loc[i + j, 'time'] - raw_data.loc[i, 'time']
                             ed_array[l] = max(element_durability * (1 - ed_time[l] / decay_time), 0)
-                        else:
-                            ed_array[l] = element_durability
-                        j = raw_data.shape[0]
+                        else:  # ed_mode = estimate
+                            ed_array[l] = element_durability  # take the value provided in function call
+                        j = raw_data.shape[0]  # end loop kek
                     j += 1
 
-            elif raw_data.iloc[i, 1] == "frozen":
-                freeze[l] = raw_data.loc[i, 'time']
+            elif raw_data.iloc[i, 1] == "frozen":  # frozen reaction
+                freeze[l] = raw_data.loc[i, 'time']  # freeze start time
                 j = 1
-                while j < raw_data.shape[0] - i:
-                    if raw_data.status.isin(("frozen", "unfrozen"))[i + j]:
-                        time_frozen[l] = raw_data.loc[i + j, 'time'] - raw_data.loc[i, 'time']
+                while j < raw_data.shape[0] - i:  # j lower than remaining rows
+                    if raw_data.status.isin(("frozen", "unfrozen"))[i + j]:  # freeze ends when unfrozen or refrozen
+                        duration_frozen[l] = raw_data.loc[i + j, 'time'] - raw_data.loc[i, 'time']
                         if raw_data.iloc[i + j, 1] == "frozen":
-                            k += 1
+                            k += 1  # 2 frozen reactions with no unfreeze in between
                         j = raw_data.shape[0]  # end for loop
                     else:
                         j += 1
-                if raw_data.shape[0] - 2 > i:
-                    if raw_data.status.isin(("wet", "cryo"))[i + 1]:
+                if raw_data.shape[0] - 2 > i:  # i lower than remaining rows - 1
+                    if raw_data.status.isin(("wet", "cryo"))[i + 1]:  # aura app before unfreeze
                         if raw_data.loc[i + 2, 'status'] == "frozen":
                             l += 1
                     if raw_data.loc[i + 1, 'status'] == "frozen":
                         l += 1
 
-            elif raw_data.loc[i, 'status'] == "unfrozen":
+            elif raw_data.loc[i, 'status'] == "unfrozen":  # unfreeze
                 unfreeze[l] = raw_data.loc[i, 'time']
                 j = 1
-                while j < raw_data.shape[0] - i:
-                    if raw_data.status.isin(("frozen", "unfrozen"))[i + j]:
-                        time_unfrozen[l] = raw_data.loc[i + j, 'time'] - raw_data.loc[i, 'time']
+                while j < raw_data.shape[0] - i:  # j lower than remaining rows
+                    if raw_data.status.isin(("frozen", "unfrozen"))[i + j]:  # unfreeze end time
+                        duration_unfrozen[l] = raw_data.loc[i + j, 'time'] - raw_data.loc[i, 'time']
                         j = raw_data.shape[0]  # end for loop
                     else:
                         j += 1
-                if raw_data.shape[0] - 1 > i > 0:
+                if raw_data.shape[0] - 1 > i > 0: # i between 0 and rows - 1
                     if raw_data.status.isin(("wet", "cryo", "frozen"))[i + 1]:
                         l += 1
 
+    # freeze decay reset calcs
     # freeze decay resets for sure when unfrozen for longer than 2 s
-    freeze_decay_reset = np.array([(time_unfrozen[k]) >= 2 or time_frozen[k] <= 0 or pd.isna(time_frozen[k])
+    freeze_decay_reset = np.array([(duration_unfrozen[k]) >= 2 or duration_frozen[k] <= 0 or pd.isna(duration_frozen[k])
                                    for k in range(0, df_length)], dtype=bool)
     # initialize arrays and variables
-    time_frozen_cumulative = np.zeros_like(time_unfrozen)
-    time_unfrozen_cumulative = np.zeros_like(time_unfrozen)
-    time_decay = np.zeros_like(time_unfrozen)
+    time_frozen_cumulative = np.zeros_like(duration_unfrozen)  # since last reset
+    time_unfrozen_cumulative = np.zeros_like(duration_unfrozen)  # since last reset
+    time_decay = np.zeros_like(duration_unfrozen)  # since last reset
     sum_freeze = 0
     sum_unfreeze = 0
 
     # calculate cumulative frozen  and unfrozen time since last freeze decay reset
     for i in range(0, df_length - 1):
-        if time_frozen[i] < 0:
+        if duration_frozen[i] < 0:  # duration cannot be negative (unless it's the next video logged)
             freeze_decay_reset[i] = True
-            time_frozen[i] = 0
+            duration_frozen[i] = 0
             time_decay[i + 1] = 0
         if freeze_decay_reset[i - 1]:
             # reset means reset
             sum_freeze = 0
             sum_unfreeze = 0
-        sum_freeze += time_frozen[i]  # add this iterations' frozen time
-        sum_unfreeze += time_unfrozen[i]  # add this iteration's unfrozen time
+        sum_freeze += duration_frozen[i]  # add this iterations' frozen time
+        sum_unfreeze += duration_unfrozen[i]  # add this iteration's unfrozen time
         time_frozen_cumulative[i + 1] = sum_freeze  # write to array
         time_unfrozen_cumulative[i + 1] = sum_unfreeze  # write to array
-        time_decay[i + 1] = sum_freeze - sum_unfreeze  # calculate t decay
+        time_decay[i + 1] = sum_freeze - 2 * sum_unfreeze  # calculate t decay
 
         # calc if this iteration did reset freeze decay
         if sum_freeze - 2 * sum_unfreeze <= 0:
@@ -175,10 +192,10 @@ def freeze_time_calcs_from_raw(raw_data, array_mode="sequential", element_durabi
 
 
     # put all that in dataframe
-    freeze_dataframe = pd.DataFrame({'freeze': freeze,  # freeze start time
-                                     'unfreeze': unfreeze,  # freeze stop time
-                                     't_frozen': time_frozen,  # frozen time in this iteration
-                                     't_unfrozen': time_unfrozen,  # unfrozen time in this iteration
+    freeze_dataframe = pd.DataFrame({'freeze': freeze,  # freeze start time (provided in function call)
+                                     'unfreeze': unfreeze,  # freeze stop time (provided in function call)
+                                     't_frozen': duration_frozen,  # frozen time in this iteration
+                                     't_unfrozen': duration_unfrozen,  # unfrozen time in this iteration
                                      't_frozen_cumulative': time_frozen_cumulative,  # cumu frozen time since reset
                                      't_unfrozen_cumulative': time_unfrozen_cumulative,  # cumu unfrzn time since reset
                                      't_decay': time_decay,  # decay time
@@ -189,7 +206,8 @@ def freeze_time_calcs_from_raw(raw_data, array_mode="sequential", element_durabi
 
 
 def fitting(data_series, ed_mode_func="exact", ed_estimate_func=40):
-    # function does sqrt, exp and lin fits
+    # function does sqrt, exp and lin fits using scipy.optimize.curve_fit
+    # cumulative frozen time and cumulative unfrozen time are considered as separate variables
     if ed_mode_func == "exact":
         # exact means determined from data
         element_durability = 2 * data_series.loc[:, "ed_estimate"]
@@ -197,6 +215,7 @@ def fitting(data_series, ed_mode_func="exact", ed_estimate_func=40):
         # estimate means given through knowledge about game (e.g. ed of rain)
         element_durability = ed_estimate_func
 
+    # necessary to use temp functions to pass d_frozen to underlying function
     def temp_func_sqrt(x, a, b):
         return sqrt_formula_for_optimization(x, a, b, d_frozen=element_durability)
 
@@ -210,17 +229,17 @@ def fitting(data_series, ed_mode_func="exact", ed_estimate_func=40):
     data_y = data_series.loc[:, 't_frozen'].to_numpy()
     data_x = np.transpose(data_series.loc[:, 't_frozen_cumulative':'t_unfrozen_cumulative'].to_numpy())
     # fit to sqrt curve
-    param_sqrt_temp = curve_fit(temp_func_sqrt, data_x, data_y, p0=(-2, 4), bounds=([-5, 0.5], [-0.001, 20]))
-    parameters_sqrt_temp = param_sqrt_temp[0]
-    var_sqrt_temp = np.diag(param_sqrt_temp[1])
+    p_sqrt_temp = curve_fit(temp_func_sqrt, data_x, data_y, p0=(-2, 4), bounds=([-5, 0.5], [-0.001, 20]))
+    parameters_sqrt_temp = p_sqrt_temp[0]
+    var_sqrt_temp = np.diag(p_sqrt_temp[1])
     # fit to exp curve
-    param_exp_temp = curve_fit(temp_func_exp, data_x, data_y, p0=(-2, 0.25), bounds=([-4, 0.001], [-0.1, 1]))
-    parameters_exp_temp = param_exp_temp[0]
-    var_exp_temp = np.diag(param_exp_temp[1])
+    p_exp_temp = curve_fit(temp_func_exp, data_x, data_y, p0=(-2, 0.25), bounds=([-4, 0.001], [-0.1, 1]))
+    parameters_exp_temp = p_exp_temp[0]
+    var_exp_temp = np.diag(p_exp_temp[1])
     # fit to linear curve
-    param_lin_temp = curve_fit(temp_func_lin, data_x, data_y, p0=(-1, 1), bounds=([-4, -10], [4, 10]))
-    parameters_lin_temp = param_lin_temp[0]
-    var_lin_temp = np.diag(param_lin_temp[1])
+    p_lin_temp = curve_fit(temp_func_lin, data_x, data_y, p0=(-1, 1), bounds=([-4, -10], [4, 10]))
+    parameters_lin_temp = p_lin_temp[0]
+    var_lin_temp = np.diag(p_lin_temp[1])
 
     return [[parameters_sqrt_temp, var_sqrt_temp],
             [parameters_exp_temp, var_exp_temp],
@@ -239,7 +258,7 @@ for j in range(0, freeze_data_phaZ_raw.shape[0]):
     freeze_data_phaZ_raw.loc[j, "unfreeze time [s]"] = freeze_data_phaZ_raw.loc[j, "unfreeze time [s]"] / 60
 
 # do calculations
-filter_cutoff = 2.5
+filter_cutoff = 4.5
 
 freeze_data_ellimiku = freeze_time_calcs_from_raw(freeze_data_ellimiku_raw, array_mode="sequential", ed_mode="estimate",
                                                   element_durability=50)
@@ -251,16 +270,16 @@ freeze_data_phaZ_filtered = freeze_data_phaZ[freeze_data_phaZ['t_unfrozen_cumula
 
 # read v1, v2, v3
 freeze_data_v1_raw = pd.read_csv("Genshin_Freeze_Extension_v1.csv", header=1, skiprows=1, usecols=[3, 4])
-freeze_data_v2_raw = pd.read_csv("Genshin_Freeze_Extension_v2.csv", header=1, skiprows=1, usecols=[3, 4])
+# freeze_data_v2_raw = pd.read_csv("Genshin_Freeze_Extension_v2.csv", header=1, skiprows=1, usecols=[3, 4])
 freeze_data_v3_raw = pd.read_csv("Genshin_Freeze_Extension_v3.csv", header=1, skiprows=1, usecols=[0, 1])
 
 freeze_data_dfs = []
 ed_estimate = np.array([50, 50, 40, 80, 40, 50])
-ed_modes = ["estimate", "estimate", "exact", "estimate", "exact", "estimate"]
+ed_modes = ["estimate", "estimate", "exact", "exact", "estimate"]
 
 j = 1
-number = 6
-for raw_data in (freeze_data_v1_raw, freeze_data_v2_raw, freeze_data_v3_raw):
+number = 5
+for raw_data in (freeze_data_v1_raw, freeze_data_v3_raw):
     for k in range(0, raw_data.shape[0]):
         raw_data.iloc[k, 0] = timestamp_to_float(raw_data.iloc[k, 0])
     result = freeze_time_calcs_from_raw(raw_data, array_mode="alternating", ed_mode=ed_modes[j + 1])
@@ -299,7 +318,7 @@ parameters_lin = []
 var_lin = []
 
 j = 0
-labels = ("ellimiku", "phaZ", "v1", "v2", "v3", "isu")
+labels = ("ellimiku", "phaZ", "v1", "v3", "isu")
 for series in (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu):
     fit_results = fitting(series, ed_mode_func=ed_modes[j], ed_estimate_func=ed_estimate[j])
     # [i][k]   i = 0 corresponds to sqrt
@@ -314,13 +333,14 @@ for series in (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs
     parameters_lin.append(fit_results[2][0])
     var_lin.append(fit_results[2][1])
     # print results
-    print("Sqrt parameters {}".format(labels[j]), parameters_sqrt[j])  # this rounds sqrt function parameters
-    print("Sqrt stderr {}".format(labels[j]), np.sqrt(var_sqrt[j]))  # corresponding standard error = sqrt(var)
-    print("Exp parameters {}".format(labels[j]), parameters_exp[j])  # this rounds exp function parameters
-    print("Exp stderr {}".format(labels[j]), np.sqrt(var_exp[j]))  # corresponding standard error = sqrt(var)
-    print("Linear parameters {}".format(labels[j]), parameters_lin[j])  # this rounds linear functions parameters
-    print("Linear stderr {}".format(labels[j]), np.sqrt(var_lin[j]))  # corresponding standard error = sqrt(var)
-    print("################################################")
+    # python string formatting (ab)use: a +/- a_strerr, b +/- b_sterr_b
+    print("Sqrt parameters {0}: a = {1:.2f} \u00B1 {3:.2f} , b = {2:.2f} \u00B1 {4:.2f}"
+          .format(labels[j], *parameters_sqrt[j], *np.sqrt(var_sqrt[j])))
+    print("Exp parameters {0}: a = {1:.2f} \u00B1 {3:.2f} , b = {2:.2f} \u00B1 {4:.2f}"
+          .format(labels[j], *parameters_exp[j], *np.sqrt(var_exp[j])))
+    print("Linear parameters {0}: a = {1:.2f} \u00B1 {3:.2f} , b = {2:.2f} \u00B1 {4:.2f}"
+          .format(labels[j], *parameters_lin[j], *np.sqrt(var_lin[j])))
+    print("##############################################################")
     j += 1
 
 # inverse variance weighting
@@ -345,10 +365,16 @@ for i in range(0, 2):
     var_best_parameters_exp[i] = 1 / np.sum(weights_exp[:, i])
     best_parameters_lin[i] = np.average(np.array(parameters_lin)[:, i], axis=0, weights=weights_exp[:, i])
     var_best_parameters_lin[i] = 1 / np.sum(weights_lin[:, i])
-print(best_parameters_sqrt, np.sqrt(var_best_parameters_sqrt))
-print(best_parameters_exp, np.sqrt(var_best_parameters_exp))
-print(best_parameters_lin, np.sqrt(var_best_parameters_lin))
 
+# python string formatting (ab)use: a +/- a_strerr, b +/- b_sterr_b
+print("Best overall sqrt parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.2f} \u00B1 {3:.2f}"
+      .format(*best_parameters_sqrt, *np.sqrt(var_best_parameters_sqrt)))
+print("Best overall exp parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.2f} \u00B1 {3:.2f}"
+      .format(*best_parameters_exp, *np.sqrt(var_best_parameters_exp)))
+print("Best overall linear parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.2f} \u00B1 {3:.2f}"
+      .format(*best_parameters_lin, *np.sqrt(var_best_parameters_lin)))
+
+# prepare arrays for plots of the fitted functions
 t_decay_plot = []
 t_frozen = []
 t_unfrozen = []
@@ -426,8 +452,8 @@ y_range_lin_1A_aura = lin_function_for_optimization(np.array([t_frozen_best, t_u
 
 
 ### Plots ###
-aura_arr = ["1A", "2B", "1A"]
-colors_arr = ["#A344A0", "#1AABC8", "#707070", "#883EFF", "#000000", "#D1A2D0"]
+aura_arr = ["1A", "1A"]
+colors_arr = ["#A344A0", "#1AABC8", "#707070", "#000000", "#D1A2D0"]  # "#883EFF"
 fig, ax = plt.subplots(1, 1)
 ax.set_ylim((1, 5))
 ax.set_xlim((-0.1, 10.5))
@@ -447,13 +473,13 @@ ax.plot(freeze_data_ellimiku_filtered['t_decay'], freeze_data_ellimiku_filtered[
 ax.plot(freeze_data_phaZ['t_decay'], freeze_data_phaZ['t_frozen'], linestyle="none", marker=".", markersize=1.2,
         label="phaZ data - swirl tests", color=colors_arr[1])
 j = 0
-for v in range(0, 3):
+for v in range(0, 2):
     ax.plot(freeze_data_dfs[v]['t_decay'], freeze_data_dfs[v]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
             label="v{0} data - {1}".format(v, aura_arr[j]), color=colors_arr[j + 2])
     j += 1
 ax.plot(freeze_data_isu['t_decay'], freeze_data_isu['t_frozen'], linestyle="none",
         marker=".", markersize=1.2,
-        label="isu data - enemy in water", color=colors_arr[5])
+        label="isu data - enemy in water", color=colors_arr[4])
 
 for i in range(0, 4):
     pass
@@ -468,7 +494,7 @@ plt.show()
 plt.close(fig)
 
 data_series = (freeze_data_ellimiku_filtered, freeze_data_phaZ, *freeze_data_dfs, freeze_data_isu)
-labels = ("ellimiku", "phaZ", "v1", "v2", "v3", "isu")
+labels = ("ellimiku", "phaZ", "v1", "v3", "isu")
 
 
 for k in range(0, number):
