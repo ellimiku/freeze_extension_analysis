@@ -382,10 +382,16 @@ for i in range(0, 2):
 # python string formatting (ab)use: a +/- a_strerr, b +/- b_sterr_b
 print("Best overall sqrt parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.2f} \u00B1 {3:.2f}"
       .format(*best_parameters_sqrt, *np.sqrt(var_best_parameters_sqrt)))
+print("relative errors: stderr a = {0:.2f}%, stderr b = {1:.2f}%".format(*np.abs((100 * np.sqrt(
+    var_best_parameters_sqrt) / best_parameters_sqrt))))
 print("Best overall exp parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.3f} \u00B1 {3:.3f}"
       .format(*best_parameters_exp, *np.sqrt(var_best_parameters_exp)))
+print("relative errors: stderr a = {0:.2f}%, stderr b = {1:.2f}%".format(*np.abs((100 * np.sqrt(
+    var_best_parameters_exp) / best_parameters_exp))))
 print("Best overall linear parameters: a = {0:.2f} \u00B1 {2:.2f} , b = {1:.2f} \u00B1 {3:.2f}"
       .format(*best_parameters_lin, *np.sqrt(var_best_parameters_lin)))
+print("relative errors: stderr a = {0:.2f}%, stderr b = {1:.2f}%".format(*np.abs((100 * np.sqrt(
+    var_best_parameters_lin) / best_parameters_lin))))
 
 # prepare arrays for plots of the fitted functions
 t_decay_plot = []
@@ -471,7 +477,7 @@ y_range_lin_1A_aura = lin_function_for_optimization(np.array([t_frozen_best, t_u
 
 
 ### Plots ###
-aura_arr = ["1A", "1A"]
+aura_arr = ["1A w/ aura tax", "1A w/ aura tax"]
 colors_arr = ["#4424D3", "#2CC259", "#707070", "#000000", "#2A96AB", "#C55EC3"]
 fig1, ax1 = plt.subplots(1, 1)
 fig2, ax2 = plt.subplots(1, 1)
@@ -498,7 +504,7 @@ for ax in (ax1, ax2):
     j = 0
     for v in range(0, 2):
         ax.plot(freeze_data_dfs[v]['t_decay'], freeze_data_dfs[v]['t_frozen'], linestyle="none", marker=".", markersize=1.2,
-                label="Kourinn v{0} data - {1}".format(v, aura_arr[j]), color=colors_arr[j + 2])
+                label="Kourinn v{0} data - {1}".format(2*v + 1, aura_arr[j]), color=colors_arr[j + 2])
         j += 1
     ax.plot(freeze_data_isu['t_decay'], freeze_data_isu['t_frozen'], linestyle="none",
             marker=".", markersize=1.2,
