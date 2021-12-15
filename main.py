@@ -158,8 +158,8 @@ def freeze_time_calcs_from_raw(raw_data, array_mode="sequential", element_durabi
                         l += 1
 
     # freeze decay reset calcs
-    # freeze decay resets for sure when unfrozen for longer than 2 s
-    freeze_decay_reset = np.array([(duration_unfrozen[k]) >= 2 or duration_frozen[k] <= 0 or pd.isna(duration_frozen[k])
+    # assume freeze decay resets for sure when unfrozen for longer than 5 s
+    freeze_decay_reset = np.array([(duration_unfrozen[k]) >= 5 or duration_frozen[k] <= 0 or pd.isna(duration_frozen[k])
                                    for k in range(0, df_length)], dtype=bool)
     # initialize arrays and variables
     time_frozen_cumulative = np.zeros_like(duration_unfrozen)  # since last reset
